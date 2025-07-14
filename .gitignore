@@ -1,6 +1,36 @@
-.env
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.*
+venv/
 instance/
 .mypy_cache/
-.env.*
+.pytest_cache/
+
+# VS Code / IDEs
+.vscode/
+.idea/
+
+# Flask-Migrate
+migrations/versions/*.pyc
+migrations/versions/__pycache__/
+
+# Databases
+*.sqlite3
+*.db
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
