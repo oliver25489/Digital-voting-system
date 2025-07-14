@@ -8,7 +8,7 @@ from flask_jwt_extended import JWTManager, create_access_token, jwt_required, ge
 from datetime import datetime, timedelta
 
 
-# Load environment variables from .env file
+
 load_dotenv()
 JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'super-secret-jwt-key')
 print(JWT_SECRET_KEY)
@@ -26,9 +26,6 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 jwt = JWTManager(app)
 
-#####################
-# Database Models   #
-#####################
 
 class EndUser(db.Model):
     __tablename__ = 'end_users'
@@ -82,9 +79,6 @@ class VotingSession(db.Model):
     end_time = db.Column(db.DateTime, nullable=False)
     status = db.Column(db.String(50), nullable=False)
 
-#####################
-# Auth Endpoints    #
-#####################
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -118,9 +112,7 @@ def login():
         return jsonify({"access_token": access_token, "student_id": user.student_id}), 200
     return jsonify({"message": "Invalid credentials"}), 401
 
-#####################
-# Protected APIs    #
-#####################
+
 
 @app.route('/candidates', methods=['GET'])
 @jwt_required()
@@ -203,9 +195,7 @@ def results():
     } for c in candidates]
     return jsonify(results), 200
 
-#####################
-# Utility           #
-#####################
+
 
 @app.errorhandler(404)
 def not_found(error):
