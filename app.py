@@ -6,7 +6,19 @@ from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
 from datetime import datetime, timedelta
+from functools import wraps
 
+def role_required(required_role):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            user_id = get_jwt_identity()
+            user = EndUser.query.get(user_id)
+            if user and user.role == required_role:
+                return fn(*args, **kwargs)
+            return jsonify({"message": "Forbidden: Insufficient privileges"}), 403
+        return wrapper
+    return decorator
 
 
 load_dotenv()
@@ -33,8 +45,11 @@ class EndUser(db.Model):
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     password_hash = db.Column(db.Text, nullable=False)
+    role = db.Column(db.String(50), nullable=False, default='voter')  # New field
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+ 
 
 class Candidate(db.Model):
     __tablename__ = 'candidates'
@@ -93,7 +108,9 @@ def register():
     user = EndUser(
         name=data['name'],
         email=data['email'],
-        password_hash=hashed_password
+        password_hash=hashed_password,
+        role='voter'
+        
     )
     db.session.add(user)
     db.session.commit()
@@ -196,6 +213,32 @@ def results():
     return jsonify(results), 200
 
 
+@app.route('/create_election', methods=["POST"])
+@jwt_required()
+@role_required('admin')
+def create_election():
+    data = request.get_json()
+    required_fields = ["title", "description", "start_time", "end_time"]
+    if not data or not all(field in data for field in required_fields):
+        return jsonify({"message": "Missing required election data"}), 400
+
+    # Parse datetime fields if necessary
+    try:
+        start_time = datetime.strptime(data["start_time"], '%Y-%m-%d %H:%M:%S')
+        end_time = datetime.strptime(data["end_time"], '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return jsonify({"message": "Invalid date format. Use YYYY-MM-DD HH:MM:SS"}), 400
+
+    election = Election(
+        title=data["title"],
+        description=data["description"],
+        start_time=start_time,
+        end_time=end_time,
+        is_active=True
+    )
+    db.session.add(election)
+    db.session.commit()
+    return jsonify({"message": "Election created successfully!", "election_id": election.id}), 201
 
 @app.errorhandler(404)
 def not_found(error):
