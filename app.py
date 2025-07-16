@@ -240,6 +240,112 @@ def create_election():
     db.session.commit()
     return jsonify({"message": "Election created successfully!", "election_id": election.id}), 201
 
+
+# Promote User Endpoint
+@app.route('/promote_user', methods=["POST"])
+@jwt_required()
+@role_required('admin')
+def promote_user():
+    data = request.get_json()
+    if not data or not all(k in data for k in ("email", "role")):
+        return jsonify({"message": "Missing data"}), 400
+
+    user = EndUser.query.filter_by(email=data['email']).first()
+    if not user:
+        return jsonify({"message": "User not found"}), 404
+
+    user.role = data['role']
+    db.session.commit()
+    return jsonify({"message": f"{user.email} promoted to {user.role}"}), 200
+
+# Manage Positions Endpoint (Create, Update, Delete)
+@app.route('/positions', methods=["POST"])
+@jwt_required()
+@role_required('admin')
+def create_position():
+    data = request.get_json()
+    if not data or not all(k in data for k in ("election_id", "name")):
+        return jsonify({"message": "Missing data"}), 400
+
+    position = Position(
+        election_id=data['election_id'],
+        name=data['name']
+    )
+    db.session.add(position)
+    db.session.commit()
+    return jsonify({"message": "Position created successfully", "position_id": position.id}), 201
+
+@app.route('/positions/<int:position_id>', methods=["PUT"])
+@jwt_required()
+@role_required('admin')
+def update_position(position_id):
+    data = request.get_json()
+    position = Position.query.get(position_id)
+    if not position:
+        return jsonify({"message": "Position not found"}), 404
+
+    position.name = data.get('name', position.name)
+    db.session.commit()
+    return jsonify({"message": "Position updated successfully"}), 200
+
+@app.route('/positions/<int:position_id>', methods=["DELETE"])
+@jwt_required()
+@role_required('admin')
+def delete_position(position_id):
+    position = Position.query.get(position_id)
+    if not position:
+        return jsonify({"message": "Position not found"}), 404
+
+    db.session.delete(position)
+    db.session.commit()
+    return jsonify({"message": "Position deleted successfully"}), 200
+
+# Start Voting Session Endpoint
+@app.route('/start_voting_session', methods=["POST"])
+@jwt_required()
+@role_required('admin')
+def start_voting_session():
+    data = request.get_json()
+    required = ("election_id", "start_time", "end_time")
+    if not data or not all(k in data for k in required):
+        return jsonify({"message": "Missing data"}), 400
+
+    # Parse datetime
+    try:
+        start_time = datetime.strptime(data["start_time"], '%Y-%m-%d %H:%M:%S')
+        end_time = datetime.strptime(data["end_time"], '%Y-%m-%d %H:%M:%S')
+    except ValueError:
+        return jsonify({"message": "Invalid date format. Use YYYY-MM-DD HH:MM:SS"}), 400
+
+    # Close existing sessions for this election
+    VotingSession.query.filter_by(election_id=data["election_id"], status='open').update({'status': 'closed'})
+    session = VotingSession(
+        election_id=data["election_id"],
+        start_time=start_time,
+        end_time=end_time,
+        status='open'
+    )
+    db.session.add(session)
+    db.session.commit()
+    return jsonify({"message": "Voting session started successfully", "session_id": session.session_id}), 201
+
+# Audit Logs Endpoint (Simple: List all votes and actions)
+@app.route('/audit_logs', methods=["GET"])
+@jwt_required()
+@role_required('admin')
+def audit_logs():
+    # Simple example: list all votes
+    votes = Vote.query.all()
+    logs = [{
+        "vote_id": v.id,
+        "student_id": v.student_id,
+        "election_id": v.election_id,
+        "position_id": v.position_id,
+        "candidate_id": v.candidate_id,
+        "vote_time": v.vote_time.strftime('%Y-%m-%d %H:%M:%S')
+    } for v in votes]
+    return jsonify({"audit_logs": logs}), 200
+
 @app.errorhandler(404)
 def not_found(error):
     return jsonify({"message": "Not found"}), 404
