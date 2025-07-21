@@ -58,16 +58,24 @@ app.register_blueprint(voter_bp)
 @app.route('/register', methods=['POST'])
 def register():
     data = request.get_json()
-    if not data or not all(k in data for k in ("name", "email", "password")):
+    if not data or not all(k in data for k in ("name", "email", "password","school_id")):
         return jsonify({"message": "Missing data"}), 400
 
     if EndUser.query.filter_by(email=data['email']).first():
         return jsonify({"message": "Email already registered"}), 409
+    
+    if EndUser.query.filter_by(school_id=data['school_id']).first():
+        return jsonify({"message": "School ID already registered"}), 409
+    
+    if not data['email'].endswith("@usiu.ac.ke"):
+        return jsonify({"message": "Use your institutional email"}), 400
+
 
     hashed_password = generate_password_hash(data['password'])
     user = EndUser(
         name=data['name'],
         email=data['email'],
+        school_id=data['school_id'],
         password_hash=hashed_password,
         role='voter'
     )

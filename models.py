@@ -86,6 +86,7 @@ class EndUser(db.Model):
     student_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
+    school_id = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.Text, nullable=False)
     role = db.Column(db.String(50), nullable=False, default='voter')
     is_active = db.Column(db.Boolean, default=True)
@@ -96,6 +97,7 @@ class EndUser(db.Model):
             "student_id": self.student_id,
             "name": self.name,
             "email": self.email,
+            "school_id":self.school_id,
             "role": self.role,
             "is_active": self.is_active,
             "created_at": self.created_at.strftime('%Y-%m-%d %H:%M:%S')

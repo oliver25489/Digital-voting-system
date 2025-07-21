@@ -37,7 +37,7 @@ A simple digital voting system backend with user roles, JWT authentication, and 
    flask run
    ```
 
-## API
+## API 
 
 See [API_DOCS.md](Api_DOCS.md) for detailed endpoints.
 
