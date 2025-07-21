@@ -39,7 +39,7 @@ A simple digital voting system backend with user roles, JWT authentication, and 
 
 ## API
 
-See [API_DOCS.md](API_DOCS.md) for detailed endpoints.
+See [API_DOCS.md](Api_DOCS.md) for detailed endpoints.
 
 ## Testing
 
