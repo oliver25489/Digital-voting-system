@@ -9,6 +9,11 @@ A simple digital voting system backend with user roles, JWT authentication, and 
 - Role-based access control (admin, voter)
 - Election, candidate, position, voting session management
 - Secure voting and audit logs
+- Cast votes securely with validation
+- View results by election and position
+- Admin management of users, elections, and sessions
+- Timezone-aware (Africa/Nairobi)
+- REST API endpoints with CORS support
 
 ## Setup
 

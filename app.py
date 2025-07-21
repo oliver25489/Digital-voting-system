@@ -5,14 +5,42 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta,timezone
 from functools import wraps
+from flask_cors import CORS
+from models import db
+from models import Candidate,EndUser,VotingSession,Voter,Vote
+from zoneinfo import ZoneInfo
 
+
+
+
+
+
+
+
+load_dotenv()
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'super-secret-jwt-key')
+
+app = Flask(__name__)
+
+CORS(app, origins=["http://localhost:5173"], supports_credentials=True)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
+
+db.init_app(app)
+migrate = Migrate(app, db)
+jwt = JWTManager(app)
+
+
+# Role check decorator
 def role_required(required_role):
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            user_id = get_jwt_identity()
+            user_id = int(get_jwt_identity())
             user = EndUser.query.get(user_id)
             if user and user.role == required_role:
                 return fn(*args, **kwargs)
@@ -20,80 +48,12 @@ def role_required(required_role):
         return wrapper
     return decorator
 
+# Register blueprint after db is initialized
+from routes.admin import admin_bp
+app.register_blueprint(admin_bp)
 
-load_dotenv()
-JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'super-secret-jwt-key')
-print(JWT_SECRET_KEY)
-
-app = Flask(__name__)
-
-
-print("DATABASE_URL =", os.environ.get("DATABASE_URL"))
-
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = JWT_SECRET_KEY
-
-db = SQLAlchemy(app)
-migrate = Migrate(app, db)
-jwt = JWTManager(app)
-
-
-class EndUser(db.Model):
-    __tablename__ = 'end_users'
-    student_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    name = db.Column(db.String(100), nullable=False)
-    email = db.Column(db.String(100), unique=True, nullable=False)
-    password_hash = db.Column(db.Text, nullable=False)
-    role = db.Column(db.String(50), nullable=False, default='voter')  # New field
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
- 
-
-class Candidate(db.Model):
-    __tablename__ = 'candidates'
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    election_id = db.Column(db.Integer, db.ForeignKey('elections.id'), nullable=False)
-    position_id = db.Column(db.Integer, db.ForeignKey('positions.id'), nullable=False)
-    name = db.Column(db.String(100), nullable=False)
-    manifesto = db.Column(db.Text)
-    vote_count = db.Column(db.Integer, default=0)
-
-class Vote(db.Model):
-    __tablename__ = 'votes'
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    student_id = db.Column(db.Integer, db.ForeignKey('end_users.student_id'), nullable=False)
-    election_id = db.Column(db.Integer, db.ForeignKey('elections.id'), nullable=False)
-    position_id = db.Column(db.Integer, db.ForeignKey('positions.id'), nullable=False)
-    candidate_id = db.Column(db.Integer, db.ForeignKey('candidates.id'), nullable=False)
-    vote_time = db.Column(db.DateTime, default=datetime.utcnow)
-    __table_args__ = (db.UniqueConstraint('student_id', 'election_id', 'position_id', name='unique_vote'), )
-
-class Election(db.Model):
-    __tablename__ = 'elections'
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    title = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text)
-    start_time = db.Column(db.DateTime, nullable=False)
-    end_time = db.Column(db.DateTime, nullable=False)
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
-class Position(db.Model):
-    __tablename__ = 'positions'
-    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    election_id = db.Column(db.Integer, db.ForeignKey('elections.id'), nullable=False)
-    name = db.Column(db.String(100), nullable=False)
-
-class VotingSession(db.Model):
-    __tablename__ = 'voting_sessions'
-    session_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    election_id = db.Column(db.Integer, db.ForeignKey('elections.id'), nullable=False)
-    start_time = db.Column(db.DateTime, nullable=False)
-    end_time = db.Column(db.DateTime, nullable=False)
-    status = db.Column(db.String(50), nullable=False)
-
+from routes.voters import voter_bp
+app.register_blueprint(voter_bp)
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -110,7 +70,6 @@ def register():
         email=data['email'],
         password_hash=hashed_password,
         role='voter'
-        
     )
     db.session.add(user)
     db.session.commit()
@@ -124,12 +83,9 @@ def login():
 
     user = EndUser.query.filter_by(email=data['email']).first()
     if user and check_password_hash(user.password_hash, data['password']):
-        # Generate JWT token
-        access_token = create_access_token(identity=user.student_id, expires_delta=timedelta(hours=1))
-        return jsonify({"access_token": access_token, "student_id": user.student_id}), 200
+        access_token = create_access_token(identity=str(user.student_id), expires_delta=timedelta(hours=1))
+        return jsonify({"access_token": access_token, "student_id": user.student_id, "role": user.role}), 200
     return jsonify({"message": "Invalid credentials"}), 401
-
-
 
 @app.route('/candidates', methods=['GET'])
 @jwt_required()
@@ -142,15 +98,17 @@ def list_candidates():
     if position_id:
         query = query.filter_by(position_id=position_id)
     candidates = query.all()
-    output = [{
-        "id": c.id,
-        "name": c.name,
-        "election_id": c.election_id,
-        "position_id": c.position_id,
-        "manifesto": c.manifesto,
-        "vote_count": c.vote_count
-    } for c in candidates]
+    output = [c.to_dict() for c in candidates]
     return jsonify(output), 200
+
+
+
+
+from datetime import datetime
+from zoneinfo import ZoneInfo  # Requires Python 3.9+
+from flask import request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from models import VotingSession, Vote, Candidate, db
 
 @app.route('/vote', methods=['POST'])
 @jwt_required()
@@ -161,14 +119,36 @@ def cast_vote():
         return jsonify({"message": "Missing data"}), 400
 
     student_id = get_jwt_identity()
+    
+    
+    nairobi = ZoneInfo("Africa/Nairobi")
+    now = datetime.now(nairobi)
 
-    # Check if voting session is open
-    now = datetime.utcnow()
-    session = VotingSession.query.filter_by(election_id=data['election_id'], status='open').first()
-    if not session or not (session.start_time <= now <= session.end_time):
+    session = VotingSession.query.filter_by(
+        election_id=data['election_id']
+    ).first()
+
+    if not session:
+        return jsonify({"message": "No session found for this election"}), 403
+
+    # Convert session times to Nairobi timezone
+    if session.start_time.tzinfo is None:
+        session.start_time = session.start_time.replace(tzinfo=ZoneInfo("Africa/Nairobi"))
+    if session.end_time.tzinfo is None:
+        session.end_time = session.end_time.replace(tzinfo=ZoneInfo("Africa/Nairobi"))
+
+    print("Now:", now)
+    print("Session start:", session.start_time)
+    print("Session end:", session.end_time)
+    print("Session status before update:", session.status)
+
+    if session.status == 'scheduled' and session.start_time <= now <= session.end_time:
+        session.status = 'open'
+        db.session.commit()
+
+    if session.status != 'open' or not (session.start_time <= now <= session.end_time):
         return jsonify({"message": "Voting is not open for this election"}), 403
 
-    # Prevent double voting
     existing_vote = Vote.query.filter_by(
         student_id=student_id,
         election_id=data['election_id'],
@@ -187,10 +167,11 @@ def cast_vote():
 
     candidate = Candidate.query.get(data['candidate_id'])
     if candidate:
-        candidate.vote_count += 1
+        candidate.votes += 1
 
     db.session.commit()
     return jsonify({"message": "Vote cast successfully"}), 201
+
 
 @app.route('/results', methods=['GET'])
 @jwt_required()
@@ -211,37 +192,21 @@ def results():
         "votes": c.vote_count
     } for c in candidates]
     return jsonify(results), 200
-
-
-@app.route('/create_election', methods=["POST"])
-@jwt_required()
-@role_required('admin')
-def create_election():
+@app.route('/admin/login', methods=['POST', 'OPTIONS'])
+def admin_login():
+    if request.method == 'OPTIONS':
+        # Handle CORS preflight
+        return jsonify({}), 200
     data = request.get_json()
-    required_fields = ["title", "description", "start_time", "end_time"]
-    if not data or not all(field in data for field in required_fields):
-        return jsonify({"message": "Missing required election data"}), 400
+    if not data or not all(k in data for k in ("email", "password")):
+        return jsonify({"message": "Missing data"}), 400
 
-    # Parse datetime fields if necessary
-    try:
-        start_time = datetime.strptime(data["start_time"], '%Y-%m-%d %H:%M:%S')
-        end_time = datetime.strptime(data["end_time"], '%Y-%m-%d %H:%M:%S')
-    except ValueError:
-        return jsonify({"message": "Invalid date format. Use YYYY-MM-DD HH:MM:SS"}), 400
+    user = EndUser.query.filter_by(email=data['email'], role='admin').first()
+    if user and check_password_hash(user.password_hash, data['password']):
+        access_token = create_access_token(identity=str(user.student_id), expires_delta=timedelta(hours=1))
+        return jsonify({"access_token": access_token, "student_id": user.student_id, "role": user.role}), 200
+    return jsonify({"message": "Invalid credentials or not an admin"}), 401
 
-    election = Election(
-        title=data["title"],
-        description=data["description"],
-        start_time=start_time,
-        end_time=end_time,
-        is_active=True
-    )
-    db.session.add(election)
-    db.session.commit()
-    return jsonify({"message": "Election created successfully!", "election_id": election.id}), 201
-
-
-# Promote User Endpoint
 @app.route('/promote_user', methods=["POST"])
 @jwt_required()
 @role_required('admin')
@@ -257,94 +222,6 @@ def promote_user():
     user.role = data['role']
     db.session.commit()
     return jsonify({"message": f"{user.email} promoted to {user.role}"}), 200
-
-# Manage Positions Endpoint (Create, Update, Delete)
-@app.route('/positions', methods=["POST"])
-@jwt_required()
-@role_required('admin')
-def create_position():
-    data = request.get_json()
-    if not data or not all(k in data for k in ("election_id", "name")):
-        return jsonify({"message": "Missing data"}), 400
-
-    position = Position(
-        election_id=data['election_id'],
-        name=data['name']
-    )
-    db.session.add(position)
-    db.session.commit()
-    return jsonify({"message": "Position created successfully", "position_id": position.id}), 201
-
-@app.route('/positions/<int:position_id>', methods=["PUT"])
-@jwt_required()
-@role_required('admin')
-def update_position(position_id):
-    data = request.get_json()
-    position = Position.query.get(position_id)
-    if not position:
-        return jsonify({"message": "Position not found"}), 404
-
-    position.name = data.get('name', position.name)
-    db.session.commit()
-    return jsonify({"message": "Position updated successfully"}), 200
-
-@app.route('/positions/<int:position_id>', methods=["DELETE"])
-@jwt_required()
-@role_required('admin')
-def delete_position(position_id):
-    position = Position.query.get(position_id)
-    if not position:
-        return jsonify({"message": "Position not found"}), 404
-
-    db.session.delete(position)
-    db.session.commit()
-    return jsonify({"message": "Position deleted successfully"}), 200
-
-# Start Voting Session Endpoint
-@app.route('/start_voting_session', methods=["POST"])
-@jwt_required()
-@role_required('admin')
-def start_voting_session():
-    data = request.get_json()
-    required = ("election_id", "start_time", "end_time")
-    if not data or not all(k in data for k in required):
-        return jsonify({"message": "Missing data"}), 400
-
-    # Parse datetime
-    try:
-        start_time = datetime.strptime(data["start_time"], '%Y-%m-%d %H:%M:%S')
-        end_time = datetime.strptime(data["end_time"], '%Y-%m-%d %H:%M:%S')
-    except ValueError:
-        return jsonify({"message": "Invalid date format. Use YYYY-MM-DD HH:MM:SS"}), 400
-
-    # Close existing sessions for this election
-    VotingSession.query.filter_by(election_id=data["election_id"], status='open').update({'status': 'closed'})
-    session = VotingSession(
-        election_id=data["election_id"],
-        start_time=start_time,
-        end_time=end_time,
-        status='open'
-    )
-    db.session.add(session)
-    db.session.commit()
-    return jsonify({"message": "Voting session started successfully", "session_id": session.session_id}), 201
-
-# Audit Logs Endpoint (Simple: List all votes and actions)
-@app.route('/audit_logs', methods=["GET"])
-@jwt_required()
-@role_required('admin')
-def audit_logs():
-    # Simple example: list all votes
-    votes = Vote.query.all()
-    logs = [{
-        "vote_id": v.id,
-        "student_id": v.student_id,
-        "election_id": v.election_id,
-        "position_id": v.position_id,
-        "candidate_id": v.candidate_id,
-        "vote_time": v.vote_time.strftime('%Y-%m-%d %H:%M:%S')
-    } for v in votes]
-    return jsonify({"audit_logs": logs}), 200
 
 @app.errorhandler(404)
 def not_found(error):
